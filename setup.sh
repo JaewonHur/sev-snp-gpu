@@ -37,7 +37,7 @@ build_image()
 
     echo "[+] Build ${image} image ..."
 
-    run_cmd ./create-image.sh --distribution ${image} ${size}
+    run_cmd ./create-image.sh -d ${image} -s ${size}
 
     popd > /dev/null
 }
@@ -64,6 +64,7 @@ build_kernel()
         run_cmd make defconfig
         run_cmd make kvm_guest.config
 
+        run_cmd ./scripts/config --enable CONFIG_CONFIGFS_FS
         run_cmd ./scripts/config --enable CONFIG_DEBUG_INFO_DWARF5
         run_cmd ./scripts/config --enable CONFIG_DEBUG_INFO
         run_cmd ./scripts/config --disable CONFIG_RANDOMIZE_BASE
