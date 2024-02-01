@@ -33,6 +33,8 @@ build_image()
 
     pushd debian > /dev/null
 
+    run_cmd sudo apt install -y debootstrap
+
     run_cmd chmod +x create-image.sh
 
     echo "[+] Build ${image} image ..."
