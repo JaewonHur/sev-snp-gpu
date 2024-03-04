@@ -7,7 +7,7 @@ This repository includes the scripts and codes to enable Nvidia GPUs in SEV-SNP 
 * **host CPU**: `AMD EPYC 7313 (32) @ 3.000GHz`
 * **host GPU**: `NVIDIA GeForce RTX 2080 Ti Rev. A`
 * **host kernel**: `5.19.0-rc6-snp-host-c4daeffce56e`
-* **host OS**: `Ubuntu 22.04.1 LTX x86_64**
+* **host OS**: `Ubuntu 22.04.1 LTX x86_64`
 * **ccp firmware**: `1.51 build:3`
 * **`lspci` result in host**:
 ```
