@@ -62,3 +62,7 @@ This repository includes the scripts and codes to enable Nvidia GPUs in SEV-SNP 
 # pip3 install torch --break-system-packages
 # python3 ./gpu_correct.py
 ```
+
+## Acknowledgement
+
+Thanks to [ir0nc0w](https://github.com/ir0nc0w) for initiating this repository.
