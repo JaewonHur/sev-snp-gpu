@@ -1,0 +1,156 @@
+diff --git a/arch/x86/include/asm/set_memory.h b/arch/x86/include/asm/set_memory.h
+index b45c4d27fd46..9839d9265e83 100644
+--- a/arch/x86/include/asm/set_memory.h
++++ b/arch/x86/include/asm/set_memory.h
+@@ -55,6 +55,9 @@ int set_pages_array_uc(struct page **pages, int addrinarray);
+ int set_pages_array_wc(struct page **pages, int addrinarray);
+ int set_pages_array_wb(struct page **pages, int addrinarray);
+ 
++int is_vm_encrypted(struct mm_struct *mm, unsigned long start, unsigned long end);
++int set_vm_encrypted(struct mm_struct *mm, unsigned long start, unsigned long end);
++int set_vm_decrypted(struct mm_struct *mm, unsigned long start, unsigned long end);
+ /*
+  * For legacy compatibility with the old APIs, a few functions
+  * are provided that work on a "struct page".
+diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
+index 1abd5438f126..98aaa357998a 100644
+--- a/arch/x86/mm/pat/set_memory.c
++++ b/arch/x86/mm/pat/set_memory.c
+@@ -2092,6 +2092,111 @@ int set_memory_decrypted(unsigned long addr, int numpages)
+ }
+ EXPORT_SYMBOL_GPL(set_memory_decrypted);
+ 
++int is_vm_encrypted(struct mm_struct *mm, unsigned long start, unsigned long end)
++{
++	unsigned long base = start, incr;
++	unsigned int level;
++	int enc = 1;
++	pte_t *pte;
++
++	if (end <= start) return -1;
++
++	while (base < end) {
++		pte = lookup_address_in_pgd(pgd_offset(mm, base), base, &level);
++		if (pte == NULL || level == PG_LEVEL_NONE) return -1;
++
++		enc &= !!((pte_val(*pte)) & (_ENC));
++
++		incr = (level == PG_LEVEL_4K) ? PAGE_SIZE :
++               (level == PG_LEVEL_2M) ? PMD_PAGE_SIZE :
++               (level == PG_LEVEL_1G) ? PUD_PAGE_SIZE :
++               (level == PG_LEVEL_512G) ? P4D_SIZE : 0;
++
++		base += incr;
++	}
++
++	return enc;
++}
++EXPORT_SYMBOL_GPL(is_vm_encrypted);
++
++int set_vm_encrypted(struct mm_struct *mm, unsigned long start, unsigned long end)
++{
++	unsigned long base = start, incr;
++	unsigned int level;
++	pte_t *pte ,new_pte;
++	unsigned long pfn;
++	pgprot_t new_pgprot;
++	void *va;
++
++	if (end <= start) return -1;
++
++	while (base < end) {
++		pte = lookup_address_in_pgd(pgd_offset(mm, base), base, &level);
++		if (pte == NULL || level == PG_LEVEL_NONE) return -1;
++
++		// do not reencrypt already encrypted vm as it causes pvalidate fault
++		if (!((pte_val(*pte)) & (_ENC))) {
++			pfn = pte_pfn(*pte);
++			new_pgprot = pgprot_encrypted(pte_pgprot(*pte));
++			new_pte = pfn_pte(pfn, new_pgprot);
++
++			set_pte_atomic(pte, new_pte);
++
++			va = __va(__pfn_to_phys(pfn));
++			x86_platform.guest.enc_status_change_finish((unsigned long) va, 1, 1);
++		}
++
++		incr = (level == PG_LEVEL_4K) ? PAGE_SIZE :
++               (level == PG_LEVEL_2M) ? PMD_PAGE_SIZE :
++               (level == PG_LEVEL_1G) ? PUD_PAGE_SIZE :
++               (level == PG_LEVEL_512G) ? P4D_SIZE : 0;
++
++		base += incr;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(set_vm_encrypted);
++
++int set_vm_decrypted(struct mm_struct *mm, unsigned long start, unsigned long end)
++{
++	unsigned long base = start, incr;
++	unsigned int level;
++	pte_t *pte ,new_pte;
++	unsigned long pfn;
++	pgprot_t new_pgprot;
++	void *va;
++
++	if (end <= start) return -1;
++
++	while (base < end) {
++		pte = lookup_address_in_pgd(pgd_offset(mm, base), base, &level);
++		if (pte == NULL || level == PG_LEVEL_NONE) return -1;
++
++		// do not redecrypt already encrypted vm as it causes pvalidate fault
++		if (((pte_val(*pte)) & (_ENC))) {
++			pfn = pte_pfn(*pte);
++			new_pgprot = pgprot_decrypted(pte_pgprot(*pte));
++			new_pte = pfn_pte(pfn, new_pgprot);
++
++			set_pte_atomic(pte, new_pte);
++
++			va = __va(__pfn_to_phys(pfn));
++			x86_platform.guest.enc_status_change_prepare((unsigned long) va, 1, 0);
++		}
++
++		incr = (level == PG_LEVEL_4K) ? PAGE_SIZE :
++               (level == PG_LEVEL_2M) ? PMD_PAGE_SIZE :
++               (level == PG_LEVEL_1G) ? PUD_PAGE_SIZE :
++               (level == PG_LEVEL_512G) ? P4D_SIZE : 0;
++
++		base += incr;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(set_vm_decrypted);
++
+ int set_pages_uc(struct page *page, int numpages)
+ {
+ 	unsigned long addr = (unsigned long)page_address(page);
+diff --git a/include/linux/set_memory.h b/include/linux/set_memory.h
+index 369769ce7399..23dce1341dc7 100644
+--- a/include/linux/set_memory.h
++++ b/include/linux/set_memory.h
+@@ -66,6 +66,21 @@ static inline int set_memory_decrypted(unsigned long addr, int numpages)
+ {
+ 	return 0;
+ }
++
++static inline int is_vm_encrypted(struct mm_struct *mm, unsigned long start, unsigned long end)
++{
++	return 0;
++}
++
++static inline int set_vm_encrypted(struct mm_struct *mm, unsigned long start, unsigned long end)
++{
++	return 0;
++}
++
++static inline int set_vm_decrypted(struct mm_struct *mm, unsigned long start, unsigned long end)
++{
++	return 1;
++}
+ #endif /* CONFIG_ARCH_HAS_MEM_ENCRYPT */
+ 
+ #endif /* _LINUX_SET_MEMORY_H_ */

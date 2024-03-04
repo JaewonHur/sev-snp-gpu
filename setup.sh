@@ -49,13 +49,17 @@ build_kernel()
 {
     local version=$1
     major=${version%%.*}
+    minor=${version%.*}
 
     [ -d linux-${version} ] || {
-        run_cmd wget https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${version}.tar.gz
-        run_cmd tar xvf linux-${version}.tar.gz linux-${version}
+        run_cmd wget https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${minor}.tar.gz
+        run_cmd tar xvf linux-${minor}.tar.gz linux-${minor}
+        run_cmd mv linux-${minor} linux-${version}
 
-        run_cmd rm linux-${version}.tar.gz
+        run_cmd rm linux-${minor}.tar.gz
     }
+
+    run_cmd patch -p1 -d linux-${version} < patches/linux-${version}.patch
 
     MAKE="make -C linux-${version} -j $(getconf _NPROCESSORS_ONLN) LOCALVERSION="
 
@@ -65,6 +69,9 @@ build_kernel()
 
         run_cmd make defconfig
         run_cmd make kvm_guest.config
+
+        run_cmd ./scripts/config --enable CONFIG_AMD_MEM_ENCRYPT
+        run_cmd ./scripts/config --enable CONFIG_AMD_MEM_ENCRYPT_ACTIVE_BY_DEFAULT
 
         run_cmd ./scripts/config --enable CONFIG_CONFIGFS_FS
         run_cmd ./scripts/config --enable CONFIG_DEBUG_INFO_DWARF5
@@ -78,6 +85,57 @@ build_kernel()
 
     echo "[+] Build linux kernel ..."
     run_cmd $MAKE
+}
+
+build_nvidia() 
+{
+    local image=$1
+    local linux=$2
+    local version=$3
+    
+    [ -d tmp ] || {
+        mkdir -p tmp
+    }
+    rm -rf tmp/*
+
+    tmp=$(realpath tmp)
+
+    run_cmd sudo mount debian/${image}.img ${tmp}
+    sleep 1
+
+    run_cmd sudo cp gpu_correct.py ${tmp}/root
+
+    run_cmd sudo cp patches/open-gpu-kernel-modules-${version}.patch ${tmp}/root/
+    local make="make -C open-gpu-kernel-modules-${version} -j $(getconf _NPROCESSORS_ONLN) KERNEL_UNAME=${linux}"
+
+    run_chroot ${tmp} """
+export DEBIAN_FRONTEND=noninteractive
+
+apt install -y wget patch build-essential
+
+cd root
+wget https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/${version}.tar.gz
+
+tar -zxvf ${version}.tar.gz
+rm ${version}.tar.gz
+
+patch -p1 -d open-gpu-kernel-modules-${version} < open-gpu-kernel-modules-${version}.patch
+rm open-gpu-kernel-modules-${version}.patch
+
+${make}
+${make} modules_install
+
+wget https://us.download.nvidia.com/XFree86/Linux-x86_64/${version}/NVIDIA-Linux-x86_64-${version}.run
+chmod +x NVIDIA-Linux-x86_64-${version}.run
+./NVIDIA-Linux-x86_64-${version}.run -s --no-kernel-modules
+
+echo -e \"nvidia\nnvidia-uvm\" >> /etc/modules
+"""
+
+    run_cmd sudo umount ${tmp}
+    sleep 1
+
+    rm -rf ${tmp}
 }
 
 update_image()
@@ -182,13 +240,18 @@ PATH=/usr/sbin/:\$PATH update-initramfs -k ${version} -c -b /boot/
     run_cmd sudo cp ${tmp}/boot/initrd.img-${version} linux-${version}/initrd.img-${version}
 
     run_cmd sudo umount ${tmp}
+    sleep 1
+
+    rm -rf ${tmp}
 }
 
 image=$1
-version=$2
-size=${3:-32768}
+linux=$2
+nvidia=$3
+size=${4:-32768}
 
 build_image ${image} ${size}
-build_kernel ${version}
-update_image ${image} ${version}
-build_initrd ${image} ${version}
+build_kernel ${linux}
+update_image ${image} ${linux}
+build_initrd ${image} ${linux}
+build_nvidia ${image} ${linux} ${nvidia}
