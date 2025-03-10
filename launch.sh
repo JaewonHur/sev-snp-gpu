@@ -34,8 +34,10 @@ snp_str=""
 [ -z $SNP ] || {
     snp_str="""
 -no-reboot \
--object sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1 \
 -machine memory-encryption=sev0,vmport=off \
+-object memory-backend-memfd,id=ram1,size=16G,share=true,prealloc=false \
+-machine memory-backend=ram1 \
+-object sev-snp-guest,id=sev0,policy=0x30000,cbitpos=51,reduced-phys-bits=1 \
 """
 }
 
@@ -62,8 +64,7 @@ sudo ${qemu_path} \
     -enable-kvm \
     -m 16384 \
     -smp 6 \
-    -drive if=pflash,format=raw,unit=0,file=ovmf/OVMF_CODE.fd,readonly=on \
-    -drive if=pflash,format=raw,unit=1,file=ovmf/OVMF_VARS.fd \
+    -bios /home/jwhur/sev-snp-gpu/ovmf/OVMF.fd \
     -drive format=raw,file=debian/$IMG.img \
     -netdev user,id=net0,host=10.0.2.10,hostfwd=tcp::$PORT-:22 \
     -device e1000,netdev=net0 \
